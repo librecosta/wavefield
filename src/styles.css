@@ -27,7 +27,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 .wave-canvas { display: block; width: 100%; height: 100%; }
 .capture-mode { display: block; width: 1891px; min-height: 230px; height: 230px; }
-.capture-mode .wave-stage { width: 1891px; height: 230px; }
+.capture-mode .wave-stage { width: 100%; height: 100%; }
 .inspector-trigger {
   position: fixed;
   bottom: 24px;
@@ -80,15 +80,20 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px 8px; color: #819cae; font-variant-numeric: tabular-nums; padding-top: 16px; margin-top: 8px; border-top: 1px solid #25343a; font-size: 10px; }
 .draw-count { grid-column: 1 / -1; }
 .keyboard-hint { margin: 12px 0 0; color: #8298a7; font-size: 10px; line-height: 1.6; }
-.backend-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.backend-switch button, .freeze-time button { border: 1px solid #31434c; border-radius: 5px; background: #142126; color: #94aab9; padding: 9px 5px; font-size: 11px; }
-.backend-switch button[aria-pressed="true"] { color: #c4dce9; background: #244051; border-color: #5a839b; }
+.freeze-time button, .seed button, .fallback button { border: 1px solid #31434c; border-radius: 5px; background: #142126; color: #94aab9; padding: 9px 5px; font-size: 11px; }
 .renderer-status { color: #8cabbf; font-size: 10px; line-height: 1.6; margin: 12px 0 16px; overflow-wrap: anywhere; }
 .renderer-status span { display: block; color: #8096a6; }
 .freeze-time { display: grid; grid-template-columns: 1fr 70px 57px; align-items: center; gap: 8px; margin: 14px 0; }
 .freeze-time input { min-width: 0; padding: 5px; color: #bcd0df; background: #192930; border: 1px solid #31434c; border-radius: 4px; font-variant-numeric: tabular-nums; }
 .freeze-time button { padding: 6px 5px; }
 .loss-test { font-size: 10px; padding: 12px 0 0; }
+.seed { display: grid; grid-template-columns: 1fr 80px 56px; align-items: center; gap: 8px; margin: 14px 0; }
+.seed input { width: 100%; min-width: 0; padding: 5px; background: #192930; color: #bcd0df; border: 1px solid #31434c; border-radius: 4px; }
+.fallback { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; background: radial-gradient(ellipse at 50% 80%,#0c1b24 0,transparent 65%); color: #8098a9; text-align: center; font-size: 12px; }
+.fallback .brand { font-size: 24px; letter-spacing: 0.08em; color: #adc3d2; }
+.fallback p { margin: 9px 0 0; max-width: 440px; }
+.fallback button { padding: 8px 12px; margin-top: 18px; }
+.is-fallback canvas { visibility: hidden; }
 @media (max-width: 560px) {
   .wave-stage { height: clamp(320px, 50svh, 440px); }
   .inspector { right: 16px; bottom: 16px; max-height: calc(100svh - 32px); padding: 16px; }

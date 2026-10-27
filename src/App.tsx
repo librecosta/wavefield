@@ -1,208 +1,121 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useMotionValue, useReducedMotion } from "motion/react";
 import { WaveField, type FrameStats } from "./WaveField";
-import { DEFAULT_SETTINGS, type WaveSettings } from "./wave/surface";
-import { DEFAULT_GPU_SETTINGS, type GpuSettings } from "./wave/gpu-terrain";
-import type { Backend, RendererStatus } from "./wave/renderer-session";
+import { DEFAULT_SETTINGS, ARTICLE_PHASE, STUDY_HILLS, seededHills, type TerrainSettings } from "./wave/gpu-terrain";
+import type { RendererStatus } from "./wave/renderer-session";
 
 const query = new URLSearchParams(window.location.search);
 const capture = query.has("capture"), still = query.has("still");
-const timeParam = Number(query.get("time") || 0);
-const initialTime = Number.isFinite(timeParam) ? Math.max(0, timeParam) : 0;
-const initialBackend: Backend = query.get("backend") === "gpu" ? "gpu" : "canvas";
-
-type SliderSpec = readonly [keyof WaveSettings, string, number, number, number, number, string?];
-const groups: { name: string; sliders: SliderSpec[] }[] = [
-  { name: "Geometry", sliders: [
-    ["waveHeight", "Wave Height", 0, 1.6, 0.05, 2],
-    ["surfaceDepth", "Surface Depth", 2, 8, 0.2, 1],
-    ["thickness", "Thickness", 0, 0.18, 0.005, 3],
-  ] },
-  { name: "Camera", sliders: [
-    ["cameraTilt", "Tilt", 10, 38, 1, 0, "°"],
-    ["cameraZoom", "Zoom", 0.6, 1.5, 0.05, 2, "×"],
-    ["verticalPosition", "Vertical Position", -0.3, 0.3, 0.02, 2],
-  ] },
-  { name: "Material", sliders: [
-    ["gridDensity", "Grid Density", 0.5, 1.5, 0.25, 2],
-    ["surfaceOpacity", "Surface Opacity", 0, 0.12, 0.005, 3],
-    ["rimLight", "Rim Light", 0, 1.5, 0.05, 2],
-    ["glow", "Glow", 0, 1.5, 0.05, 2],
-    ["brightness", "Brightness", 0.4, 1.6, 0.05, 2],
-  ] },
-];
-const gpuSliders: readonly (readonly [keyof GpuSettings, string, number, number, number])[] = [
-  ["relief", "Terrain Relief", 0, 1.8, 0.05],
-  ["focusDepth", "Focus Depth", 0, 1, 0.02],
-  ["defocus", "Defocus", 0, 3, 0.05],
-  ["contrast", "Grid Contrast", 0.3, 1.8, 0.05],
-  ["rimLight", "Rim Light", 0, 1.5, 0.05],
-  ["opacity", "Opacity", 0, 1, 0.05],
+const captureSize = /^(\d+)x(\d+)$/.exec(query.get("capture") || "");
+const captureWidth = captureSize ? Math.max(280,Math.min(2560,Number(captureSize[1]))) : 1891;
+const captureHeight = captureSize ? Math.max(180,Math.min(1600,Number(captureSize[2]))) : 230;
+const requestedTime = Number(query.get("time") || 0);
+const initialTime = Number.isFinite(requestedTime) ? Math.max(0, requestedTime) : 0;
+const defaults = (): TerrainSettings => ({ ...DEFAULT_SETTINGS,
+  quality: query.get("quality") === "reference" ? "reference" : "adaptive" });
+type ScalarKey = { [K in keyof TerrainSettings]: TerrainSettings[K] extends number ? K : never }[keyof TerrainSettings];
+type Slider = readonly [ScalarKey, string, number, number, number];
+const groups: readonly { name: string; sliders: readonly Slider[] }[] = [
+  { name: "Landform", sliders: [["relief","Height scale",0,1.8,0.05],["span","Hill span",0.6,1.8,0.05],["phase","Scene phase",0,4096,1]] },
+  { name: "Focus & material", sliders: [["focus","Focus depth",0,1,0.01],["softness","Defocus",0,2,0.05],
+    ["lineSize","Line size",0.5,2.5,0.05],["mainAlpha","Main alpha",0,1,0.02],["crossAlpha","Cross alpha",0,0.4,0.01],
+    ["rim","Grazing highlight",0,2,0.05],["opacity","Opacity",0,1.5,0.05]] },
+  { name: "Projection", sliders: [["framing","Field scale",0.6,1.5,0.05],["vertical","Vertical position",-0.4,0.4,0.02]] },
 ];
 
 export function App() {
   const reduced = useReducedMotion();
   const [inspector, setInspector] = useState(query.has("inspect"));
   const [playing, setPlaying] = useState(!still && !reduced);
-  const [settings, setSettings] = useState<WaveSettings>({ ...DEFAULT_SETTINGS });
-  const [gpuSettings, setGpuSettings] = useState<GpuSettings>({ ...DEFAULT_GPU_SETTINGS });
-  const [backend, setBackend] = useState<Backend>(initialBackend);
-  const [status, setStatus] = useState<RendererStatus>({ phase: initialBackend === "gpu" ? "initializing" : "ready" });
+  const [settings, setSettings] = useState(defaults);
+  const [status, setStatus] = useState<RendererStatus>({ phase: "initializing" });
   const [seek, setSeek] = useState({ sequence: 0, time: initialTime });
   const [freezeTime, setFreezeTime] = useState(String(initialTime));
-  const [lossToken, setLossToken] = useState(0);
-  const [stats, setStats] = useState<FrameStats>({
-    time: initialTime, renderMs: 0, fps: 0, draws: 0,
-    width: 0, height: 0, pixelWidth: 0, pixelHeight: 0, dpr: 1, backend: initialBackend, instances: 0,
-  });
-  const inspectorRef = useRef(inspector);
-  inspectorRef.current = inspector;
+  const [seed, setSeed] = useState("137");
+  const [selectedHill, setSelectedHill] = useState(0);
+  const [lossToken, setLossToken] = useState(0), [retry, setRetry] = useState(0);
+  const [stats, setStats] = useState<FrameStats>({ time: initialTime, fps: 0, renderMs: 0, draws: 0, instances: 0,
+    width: 0, height: 0, pixelWidth: 0, pixelHeight: 0, dpr: 1 });
+  const inspectorRef = useRef(inspector); inspectorRef.current = inspector;
   const playingValue = useMotionValue(playing && !reduced);
   const settingsValue = useMotionValue(settings);
-  const gpuSettingsValue = useMotionValue(gpuSettings);
+  const onStats = useCallback((value: FrameStats) => { if (inspectorRef.current) setStats(value); }, []);
+  const onStatus = useCallback((value: RendererStatus) => setStatus(value), []);
   const togglePlaying = useCallback(() => { if (!reduced) setPlaying(value => !value); }, [reduced]);
-  const restart = useCallback(() => {
-    setSeek(value => ({ sequence: value.sequence + 1, time: 0 }));
-    setStats(value => ({ ...value, time: 0 }));
-  }, []);
-  const resetDefaults = (resume: boolean) => {
-    setSettings({ ...DEFAULT_SETTINGS });
-    setGpuSettings({ ...DEFAULT_GPU_SETTINGS });
-    setPlaying(resume && !reduced);
-    restart();
-  };
-  const onStats = useCallback((next: FrameStats) => {
-    if (inspectorRef.current) setStats(next);
-  }, []);
-  const onStatus = useCallback((next: RendererStatus) => setStatus(next), []);
-  const onFallback = useCallback((reason: string, message: string) => {
-    setStatus({ phase: "fallback", reason, message });
-    setBackend("canvas");
-    setStats(value => ({ ...value, backend: "canvas", fps: 0, renderMs: 0, draws: 0, instances: 0 }));
-  }, []);
-  const selectBackend = (next: Backend) => {
-    if (next === backend) return;
-    setBackend(next);
-    setStatus({ phase: next === "gpu" ? "initializing" : "ready" });
-    setStats(value => ({ ...value, backend: next, fps: 0, renderMs: 0, draws: 0, instances: 0 }));
-  };
-  const freeze = () => {
-    const time = Number(freezeTime);
-    if (!Number.isFinite(time) || time < 0) return;
-    setPlaying(false);
+  const seekTo = useCallback((time: number) => {
     setSeek(value => ({ sequence: value.sequence + 1, time }));
     setStats(value => ({ ...value, time }));
-  };
+  }, []);
   useEffect(() => { playingValue.set(playing && !reduced); }, [playing, reduced, playingValue]);
-  useEffect(() => { settingsValue.set(settings); }, [settings, settingsValue]);
-  useEffect(() => { gpuSettingsValue.set(gpuSettings); }, [gpuSettings, gpuSettingsValue]);
+  useEffect(() => { settingsValue.set(reduced ? { ...settings, entrance: false } : settings); }, [settings, reduced, settingsValue]);
   useEffect(() => { if (reduced) setPlaying(false); }, [reduced]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement;
-      if (["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName) || target.isContentEditable ||
-        event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
-      if (event.code === "Space" && !["BUTTON", "SUMMARY"].includes(target.tagName)) {
-        event.preventDefault(); togglePlaying();
-      }
-      if (event.key.toLowerCase() === "d") setInspector(value => !value);
-      if (event.key.toLowerCase() === "r") restart();
-      if (event.key === "Escape") setInspector(false);
+      if (event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
+      if (event.target instanceof HTMLElement &&
+        (/^(INPUT|SELECT|TEXTAREA|BUTTON|SUMMARY)$/.test(event.target.tagName) || event.target.isContentEditable)) return;
+      if (event.code === "Space") { event.preventDefault(); togglePlaying(); }
+      if (event.code === "KeyD") setInspector(value => !value);
+      if (event.code === "Escape") setInspector(false);
+      if (event.code === "KeyR") seekTo(0);
     };
-    window.addEventListener("keydown", keydown);
-    return () => window.removeEventListener("keydown", keydown);
-  }, [togglePlaying, restart]);
-
-  const slider = ([key, label, min, max, step, precision, suffix = ""]: SliderSpec) => (
-    <label className="slider" key={key}>
-      <span>{label}</span>
-      <input aria-label={label} type="range" min={min} max={max} step={step} value={settings[key]}
-        onChange={event => setSettings(value => ({ ...value, [key]: Number(event.target.value) }))} />
-      <output>{settings[key].toFixed(precision)}{suffix}</output>
-    </label>
-  );
-  return (
-    <main className={`experiment${capture ? " capture-mode" : ""}`} aria-label="Wavefield">
-      <div className="wave-stage" data-testid="wave-stage">
-        <WaveField backend={backend} playing={playingValue} settings={settingsValue} gpuSettings={gpuSettingsValue}
-          initialTime={initialTime} seek={seek} lossToken={lossToken}
-          onStats={onStats} onStatus={onStatus} onFallback={onFallback} />
-      </div>
-      {!capture && <button className="inspector-trigger" onClick={() => setInspector(true)}
-        aria-label="Open controls, shortcut D">Controls · D</button>}
-      <AnimatePresence>
-        {inspector && !capture && (
-          <motion.aside className="inspector" aria-label="Wave controls"
-            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
-            transition={{ duration: reduced ? 0 : 0.15 }}>
-            <div className="inspector-heading">
-              <h1>Wavefield <span>A/B Lab · 0.3</span></h1>
-              <button className="text-button" onClick={() => setInspector(false)} aria-label="Close controls">Close</button>
-            </div>
-            <div className="backend-switch" role="group" aria-label="Rendering backend">
-              <button aria-pressed={backend === "canvas"} onClick={() => selectBackend("canvas")}>Canvas 2D · V0.2</button>
-              <button aria-pressed={backend === "gpu"} onClick={() => selectBackend("gpu")}>WebGPU · V0.3</button>
-            </div>
-            <p className="renderer-status" role="status" data-testid="renderer-status">
-              {backend === "gpu" ? "WebGPU" : "Canvas 2D"} · {status.phase}
-              {status.reason && ` · ${status.reason}`}
-              {status.message && <span>{status.message}</span>}
-              {status.adapter && <span>{status.adapter}</span>}
-            </p>
-            {backend === "canvas" && groups.map(group => <details key={group.name} open={group.name === "Geometry"}>
-              <summary>{group.name}</summary>
-              <div className="group-controls">{group.sliders.map(slider)}</div>
-            </details>)}
-            {backend === "gpu" && <details open>
-              <summary>GPU terrain &amp; material</summary>
-              <div className="group-controls">{gpuSliders.map(([key, label, min, max, step]) => (
-                <label className="slider" key={key}><span>{label}</span>
-                  <input aria-label={label} type="range" min={min} max={max} step={step} value={gpuSettings[key]}
-                    onChange={event => setGpuSettings(value => ({ ...value, [key]: Number(event.target.value) }))} />
-                  <output>{gpuSettings[key].toFixed(2)}</output>
-                </label>
-              ))}</div>
-            </details>}
-            <details open>
-              <summary>Animation</summary>
-              <div className="group-controls">
-                <div className="playback">
-                  <button onClick={togglePlaying} disabled={!!reduced}>{playing && !reduced ? "Pause" : "Play"}</button>
-                  <button onClick={() => resetDefaults(false)}>Initial Frame</button>
-                  <button onClick={() => resetDefaults(true)}>Reset</button>
-                </div>
-                {slider(["speed", "Speed", 0.1, 2, 0.05, 2])}
-                <div className="freeze-time">
-                  <label htmlFor="freeze-time">Freeze at time</label>
-                  <input id="freeze-time" type="number" min="0" step="0.1" value={freezeTime}
-                    onChange={event => setFreezeTime(event.target.value)} />
-                  <button onClick={freeze}>Freeze</button>
-                </div>
-                <label className="frame-limit"><span>Frame Limit</span>
-                  <select aria-label="Frame Limit" value={settings.frameLimit}
-                    onChange={event => setSettings(value => ({ ...value, frameLimit: Number(event.target.value) }))}>
-                    {[12, 24, 30].map(limit => <option value={limit} key={limit}>{limit} draws / s</option>)}
-                  </select>
-                </label>
-                {reduced && <p className="keyboard-hint">Reduced motion: animation paused.</p>}
-              </div>
-            </details>
-            <div className="stats" data-testid="frame-stats" aria-live="off">
-              <span>{stats.time.toFixed(1)} s</span>
-              <span>{stats.fps.toFixed(1)} {stats.backend === "gpu" ? "submit" : "draw"} FPS</span>
-              <span>{stats.renderMs.toFixed(2)} JS ms / {stats.backend === "gpu" ? "submit" : "draw"}</span>
-              <span>{Math.round(stats.width)} × {Math.round(stats.height)} CSS</span>
-              <span>{stats.pixelWidth} × {stats.pixelHeight} px</span>
-              <span>DPR {stats.dpr.toFixed(2)}</span>
-              <span className="draw-count">Backend {stats.backend === "gpu" ? "submits" : "draws"}: {stats.draws}</span>
-              {stats.backend === "gpu" && <span className="draw-count">{stats.instances} segment instances · GPU time not measured</span>}
-            </div>
-            {backend === "gpu" && status.phase === "ready" && <button className="loss-test text-button"
-              onClick={() => setLossToken(value => value + 1)}>Test device loss</button>}
-            <p className="keyboard-hint">Space: play / pause · R: restart · D: controls</p>
-          </motion.aside>
-        )}
-      </AnimatePresence>
-    </main>
-  );
+    window.addEventListener("keydown",keydown); return () => window.removeEventListener("keydown",keydown);
+  }, [seekTo,togglePlaying]);
+  const slider = ([key,label,min,max,step]: Slider) => <label className="slider" key={key}>
+    <span>{label}</span><input type="range" aria-label={label} min={min} max={max} step={step} value={settings[key]}
+      onChange={event => setSettings(value => ({ ...value, [key]: Number(event.target.value) }))} />
+    <output>{settings[key].toFixed(2)}</output></label>;
+  const reset = () => { setSettings(defaults()); setPlaying(false); seekTo(0); };
+  const fallback = status.phase === "fallback";
+  return <main className={`experiment${capture ? " capture-mode" : ""}`} aria-label="Wavefield"
+    style={capture ? {width:captureWidth,height:captureHeight,minHeight:captureHeight} : undefined}>
+    <div className={`wave-stage${fallback ? " is-fallback" : ""}`} data-testid="wave-stage">
+      <WaveField playing={playingValue} settings={settingsValue} initialTime={initialTime} seek={seek}
+        lossToken={lossToken} retry={retry} onStats={onStats} onStatus={onStatus} />
+      {fallback && <div className="fallback" role="status"><span className="brand">Wavefield</span>
+        <p>Static background · {status.reason}</p><p>{status.message}</p>
+        <button onClick={() => setRetry(value => value + 1)}>Retry WebGPU</button></div>}
+    </div>
+    {!capture && <button className="inspector-trigger" onClick={() => setInspector(true)} aria-label="Open controls">Controls · D</button>}
+    <AnimatePresence>{inspector && !capture && <motion.aside className="inspector" aria-label="Terrain controls"
+      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: reduced ? 0 : 0.15 }}>
+      <div className="inspector-heading"><h1>Wavefield <span>Terrain · 0.3-R1</span></h1>
+        <button className="text-button" onClick={() => setInspector(false)} aria-label="Close controls">Close</button></div>
+      <p className="renderer-status" data-testid="renderer-status" role="status">WebGPU · {status.phase}
+        {status.reason && ` · ${status.reason}`}<span>{status.adapter || status.message}</span></p>
+      {groups.map(group => <details key={group.name} open={group.name === "Landform"}>
+        <summary>{group.name}</summary><div className="group-controls">{group.sliders.map(slider)}
+        {group.name === "Landform" && <>
+          <div className="seed"><label htmlFor="seed">Scene seed</label><input id="seed" value={seed} type="number" min="0" step="1" onChange={event=>setSeed(event.target.value)} />
+            <button onClick={() => { const value=Number(seed); if (Number.isFinite(value)) setSettings(current=>({...current,hills:seededHills(value)})); }}>Apply</button></div>
+          <button className="text-button" onClick={() => setSettings(value => ({...value,hills:STUDY_HILLS,phase:ARTICLE_PHASE}))}>Article reference preset</button>
+          <p className="keyboard-hint">Numeric article preset derived from the public initializer. Scene seed generates Wavefield alternatives.</p>
+          <label className="frame-limit">Hill<select aria-label="Hill" value={selectedHill} onChange={event=>setSelectedHill(Number(event.target.value))}>
+            {[0,1,2,3].map(index=><option key={index} value={index}>{index+1}</option>)}</select></label>
+          {([["x","Hill X",-6,6,0.1],["z","Hill Z",-4,4,0.1],["amplitude","Hill height",0,3,0.05],["width","Inverse span",0.15,1,0.01]] as const).map(([key,label,min,max,step])=><label className="slider" key={key}>
+            <span>{label}</span><input type="range" aria-label={label} min={min} max={max} step={step} value={settings.hills[selectedHill][key]}
+              onChange={event=>setSettings(value=>({...value,hills:value.hills.map((hill,index)=>index===selectedHill?{...hill,[key]:Number(event.target.value)}:hill)}))} />
+            <output>{settings.hills[selectedHill][key].toFixed(2)}</output></label>)}
+        </>}
+        </div></details>)}
+      <details open><summary>Animation & sampling</summary><div className="group-controls">
+        <div className="playback"><button onClick={togglePlaying} disabled={!!reduced || fallback}>{playing && !reduced ? "Pause" : "Play"}</button>
+          <button onClick={reset}>Initial frame</button></div>
+        {slider(["speed","Speed",0.1,2,0.05])}
+        <div className="freeze-time"><label htmlFor="freeze-time">Freeze at time</label><input id="freeze-time" type="number" min="0" step="0.1" value={freezeTime} onChange={event=>setFreezeTime(event.target.value)} />
+          <button onClick={()=>{const time=Number(freezeTime);if(Number.isFinite(time)&&time>=0){setPlaying(false);seekTo(time);}}}>Freeze</button></div>
+        <label className="frame-limit">Frame limit<select aria-label="Frame limit" value={settings.frameLimit} onChange={event=>setSettings(value=>({...value,frameLimit:Number(event.target.value)}))}>
+          <option value="12">12 submits / s</option><option value="24">24 submits / s</option></select></label>
+        <label className="frame-limit">Grid quality<select aria-label="Grid quality" value={settings.quality} onChange={event=>setSettings(value=>({...value,quality:event.target.value as TerrainSettings["quality"]}))}>
+          <option value="adaptive">Adaptive</option><option value="reference">192 × 112</option></select></label>
+        <label className="frame-limit">Entrance fade<input aria-label="Entrance fade" type="checkbox" checked={settings.entrance} onChange={event=>setSettings(value=>({...value,entrance:event.target.checked}))} /></label>
+        {reduced && <p className="keyboard-hint">Reduced motion: static preview.</p>}
+      </div></details>
+      <div className="stats" data-testid="frame-stats" aria-live="off"><span>{stats.time.toFixed(1)} s</span><span>{stats.fps.toFixed(1)} submit FPS</span><span>{stats.renderMs.toFixed(2)} CPU ms / submit</span>
+        <span>{Math.round(stats.width)} × {Math.round(stats.height)} CSS</span><span>{stats.pixelWidth} × {stats.pixelHeight} px</span><span>DPR {stats.dpr.toFixed(2)}</span>
+        <span className="draw-count">Submits: {stats.draws} · {stats.instances} segments</span><span className="draw-count">GPU execution time not measured</span></div>
+      {status.phase === "ready" && <button className="text-button loss-test" onClick={()=>setLossToken(value=>value+1)}>Test device loss</button>}
+      <p className="keyboard-hint">Space: play / pause · R: restart · D: controls</p>
+    </motion.aside>}</AnimatePresence>
+  </main>;
 }

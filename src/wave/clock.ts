@@ -1,4 +1,4 @@
-/** RAF scheduling, animation time and actual Canvas draws are separate. */
+/** RAF scheduling, animation time and actual GPU submissions are separate. */
 export class FrameClock {
   elapsed: number;
   private previous: number | null = null;

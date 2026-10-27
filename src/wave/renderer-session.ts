@@ -1,5 +1,4 @@
 export type Disposable = { dispose(): void };
-export type Backend = "canvas" | "gpu";
 export type RendererStatus = {
   phase: "ready" | "initializing" | "fallback";
   reason?: string;

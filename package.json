@@ -2,7 +2,7 @@
   "name": "wavefield",
   "version": "0.0.0",
   "private": true,
-  "description": "Interactive procedural wave visuals for the web, built with React, Motion, and Canvas 2D.",
+  "description": "Procedural wire terrain for the web, built with React, Motion, and native WebGPU.",
   "license": "BSD-3-Clause",
   "author": "LibreCosta",
   "repository": {

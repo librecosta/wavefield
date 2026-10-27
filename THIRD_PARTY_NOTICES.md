@@ -53,8 +53,14 @@ PERFORMANCE OF THIS SOFTWARE.
 
 ## Development dependencies
 
-`@webgpu/types` uses BSD-3-Clause, copyright 2022 WebGPU Developers. It provides compile-time API declarations only and is not shipped as a runtime renderer. Its complete license is included in the installed package. Wavefield's WGSL, terrain field, scene seed, and coefficients are original; no third-party shader or example source is vendored.
+`@webgpu/types` uses BSD-3-Clause, copyright 2022 WebGPU Developers. It provides compile-time API declarations only and is not shipped as a runtime renderer. Its complete license is included in the installed package.
 
 Vite and its React plugin use MIT. TypeScript uses Apache-2.0. Transitive development dependencies also include ISC, BSD-3-Clause, 0BSD and CC-BY-4.0 licenses. The CC-BY-4.0 browser-compatibility dataset is provided by [caniuse-lite](https://github.com/browserslist/caniuse-lite), a build-time dependency; it is not part of the wave geometry or artwork.
 
 The complete license files are distributed in the respective npm packages. When distributing a generated bundle, retain its third-party license comments and applicable notices as well as this project's LICENSE.
+
+## Visual and mathematical reference
+
+Motion's public [article header terrain](https://motion.dev/examples/react-particle-orb) informs V0.3-R1. The mathematical observations and engineering requirements are recorded in [Issue #2](https://github.com/librecosta/wavefield/issues/2). The article preset's numeric hill, phase and color data were derived from the public initializer and verified against runtime uniforms on 2026-10-28. They are scene observations, not copied shader code. Wavefield independently implements the observed behavior with shared-node compute sampling and a separate ribbon rendering pass; its alternative seed generator is also independent.
+
+No original Motion JavaScript/WGSL, paid example implementation, research captures, images, fonts, or other website assets are distributed. Publicly readable website source is not represented as BSD-licensed material. Wavefield is not affiliated with or endorsed by Motion.
