@@ -9,7 +9,11 @@ export class FrameClock {
   constructor(initialTime = 0) { this.elapsed = initialTime; }
   invalidate() { this.dirty = true; }
   suspend() { this.previous = null; this.active = false; }
-  reset() { this.elapsed = 0; this.suspend(); this.invalidate(); }
+  seek(time: number) {
+    this.elapsed = Number.isFinite(time) ? Math.max(0, time) : 0;
+    this.suspend(); this.invalidate();
+  }
+  reset() { this.seek(0); }
 
   step(now: number, speed: number, playing: boolean, visible: boolean, limit: number) {
     const active = playing && visible;

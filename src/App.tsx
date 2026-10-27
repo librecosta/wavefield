@@ -2,11 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useMotionValue, useReducedMotion } from "motion/react";
 import { WaveField, type FrameStats } from "./WaveField";
 import { DEFAULT_SETTINGS, type WaveSettings } from "./wave/surface";
+import { DEFAULT_GPU_SETTINGS, type GpuSettings } from "./wave/gpu-terrain";
+import type { Backend, RendererStatus } from "./wave/renderer-session";
 
 const query = new URLSearchParams(window.location.search);
 const capture = query.has("capture"), still = query.has("still");
 const timeParam = Number(query.get("time") || 0);
 const initialTime = Number.isFinite(timeParam) ? Math.max(0, timeParam) : 0;
+const initialBackend: Backend = query.get("backend") === "gpu" ? "gpu" : "canvas";
 
 type SliderSpec = readonly [keyof WaveSettings, string, number, number, number, number, string?];
 const groups: { name: string; sliders: SliderSpec[] }[] = [
@@ -28,36 +31,71 @@ const groups: { name: string; sliders: SliderSpec[] }[] = [
     ["brightness", "Brightness", 0.4, 1.6, 0.05, 2],
   ] },
 ];
+const gpuSliders: readonly (readonly [keyof GpuSettings, string, number, number, number])[] = [
+  ["relief", "Terrain Relief", 0, 1.8, 0.05],
+  ["focusDepth", "Focus Depth", 0, 1, 0.02],
+  ["defocus", "Defocus", 0, 3, 0.05],
+  ["contrast", "Grid Contrast", 0.3, 1.8, 0.05],
+  ["rimLight", "Rim Light", 0, 1.5, 0.05],
+  ["opacity", "Opacity", 0, 1, 0.05],
+];
 
 export function App() {
   const reduced = useReducedMotion();
   const [inspector, setInspector] = useState(query.has("inspect"));
   const [playing, setPlaying] = useState(!still && !reduced);
   const [settings, setSettings] = useState<WaveSettings>({ ...DEFAULT_SETTINGS });
-  const [resetToken, setResetToken] = useState(0);
+  const [gpuSettings, setGpuSettings] = useState<GpuSettings>({ ...DEFAULT_GPU_SETTINGS });
+  const [backend, setBackend] = useState<Backend>(initialBackend);
+  const [status, setStatus] = useState<RendererStatus>({ phase: initialBackend === "gpu" ? "initializing" : "ready" });
+  const [seek, setSeek] = useState({ sequence: 0, time: initialTime });
+  const [freezeTime, setFreezeTime] = useState(String(initialTime));
+  const [lossToken, setLossToken] = useState(0);
   const [stats, setStats] = useState<FrameStats>({
     time: initialTime, renderMs: 0, fps: 0, draws: 0,
-    width: 0, height: 0, pixelWidth: 0, pixelHeight: 0, dpr: 1,
+    width: 0, height: 0, pixelWidth: 0, pixelHeight: 0, dpr: 1, backend: initialBackend, instances: 0,
   });
   const inspectorRef = useRef(inspector);
   inspectorRef.current = inspector;
   const playingValue = useMotionValue(playing && !reduced);
   const settingsValue = useMotionValue(settings);
+  const gpuSettingsValue = useMotionValue(gpuSettings);
   const togglePlaying = useCallback(() => { if (!reduced) setPlaying(value => !value); }, [reduced]);
   const restart = useCallback(() => {
-    setResetToken(value => value + 1);
+    setSeek(value => ({ sequence: value.sequence + 1, time: 0 }));
     setStats(value => ({ ...value, time: 0 }));
   }, []);
   const resetDefaults = (resume: boolean) => {
     setSettings({ ...DEFAULT_SETTINGS });
+    setGpuSettings({ ...DEFAULT_GPU_SETTINGS });
     setPlaying(resume && !reduced);
     restart();
   };
   const onStats = useCallback((next: FrameStats) => {
     if (inspectorRef.current) setStats(next);
   }, []);
+  const onStatus = useCallback((next: RendererStatus) => setStatus(next), []);
+  const onFallback = useCallback((reason: string, message: string) => {
+    setStatus({ phase: "fallback", reason, message });
+    setBackend("canvas");
+    setStats(value => ({ ...value, backend: "canvas", fps: 0, renderMs: 0, draws: 0, instances: 0 }));
+  }, []);
+  const selectBackend = (next: Backend) => {
+    if (next === backend) return;
+    setBackend(next);
+    setStatus({ phase: next === "gpu" ? "initializing" : "ready" });
+    setStats(value => ({ ...value, backend: next, fps: 0, renderMs: 0, draws: 0, instances: 0 }));
+  };
+  const freeze = () => {
+    const time = Number(freezeTime);
+    if (!Number.isFinite(time) || time < 0) return;
+    setPlaying(false);
+    setSeek(value => ({ sequence: value.sequence + 1, time }));
+    setStats(value => ({ ...value, time }));
+  };
   useEffect(() => { playingValue.set(playing && !reduced); }, [playing, reduced, playingValue]);
   useEffect(() => { settingsValue.set(settings); }, [settings, settingsValue]);
+  useEffect(() => { gpuSettingsValue.set(gpuSettings); }, [gpuSettings, gpuSettingsValue]);
   useEffect(() => { if (reduced) setPlaying(false); }, [reduced]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -86,8 +124,9 @@ export function App() {
   return (
     <main className={`experiment${capture ? " capture-mode" : ""}`} aria-label="Wavefield">
       <div className="wave-stage" data-testid="wave-stage">
-        <WaveField playing={playingValue} settings={settingsValue} initialTime={initialTime}
-          resetToken={resetToken} onStats={onStats} />
+        <WaveField backend={backend} playing={playingValue} settings={settingsValue} gpuSettings={gpuSettingsValue}
+          initialTime={initialTime} seek={seek} lossToken={lossToken}
+          onStats={onStats} onStatus={onStatus} onFallback={onFallback} />
       </div>
       {!capture && <button className="inspector-trigger" onClick={() => setInspector(true)}
         aria-label="Open controls, shortcut D">Controls · D</button>}
@@ -97,13 +136,33 @@ export function App() {
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
             transition={{ duration: reduced ? 0 : 0.15 }}>
             <div className="inspector-heading">
-              <h1>Wavefield <span>0.2</span></h1>
+              <h1>Wavefield <span>A/B Lab · 0.3</span></h1>
               <button className="text-button" onClick={() => setInspector(false)} aria-label="Close controls">Close</button>
             </div>
-            {groups.map(group => <details key={group.name} open={group.name === "Geometry"}>
+            <div className="backend-switch" role="group" aria-label="Rendering backend">
+              <button aria-pressed={backend === "canvas"} onClick={() => selectBackend("canvas")}>Canvas 2D · V0.2</button>
+              <button aria-pressed={backend === "gpu"} onClick={() => selectBackend("gpu")}>WebGPU · V0.3</button>
+            </div>
+            <p className="renderer-status" role="status" data-testid="renderer-status">
+              {backend === "gpu" ? "WebGPU" : "Canvas 2D"} · {status.phase}
+              {status.reason && ` · ${status.reason}`}
+              {status.message && <span>{status.message}</span>}
+              {status.adapter && <span>{status.adapter}</span>}
+            </p>
+            {backend === "canvas" && groups.map(group => <details key={group.name} open={group.name === "Geometry"}>
               <summary>{group.name}</summary>
               <div className="group-controls">{group.sliders.map(slider)}</div>
             </details>)}
+            {backend === "gpu" && <details open>
+              <summary>GPU terrain &amp; material</summary>
+              <div className="group-controls">{gpuSliders.map(([key, label, min, max, step]) => (
+                <label className="slider" key={key}><span>{label}</span>
+                  <input aria-label={label} type="range" min={min} max={max} step={step} value={gpuSettings[key]}
+                    onChange={event => setGpuSettings(value => ({ ...value, [key]: Number(event.target.value) }))} />
+                  <output>{gpuSettings[key].toFixed(2)}</output>
+                </label>
+              ))}</div>
+            </details>}
             <details open>
               <summary>Animation</summary>
               <div className="group-controls">
@@ -113,6 +172,12 @@ export function App() {
                   <button onClick={() => resetDefaults(true)}>Reset</button>
                 </div>
                 {slider(["speed", "Speed", 0.1, 2, 0.05, 2])}
+                <div className="freeze-time">
+                  <label htmlFor="freeze-time">Freeze at time</label>
+                  <input id="freeze-time" type="number" min="0" step="0.1" value={freezeTime}
+                    onChange={event => setFreezeTime(event.target.value)} />
+                  <button onClick={freeze}>Freeze</button>
+                </div>
                 <label className="frame-limit"><span>Frame Limit</span>
                   <select aria-label="Frame Limit" value={settings.frameLimit}
                     onChange={event => setSettings(value => ({ ...value, frameLimit: Number(event.target.value) }))}>
@@ -124,13 +189,16 @@ export function App() {
             </details>
             <div className="stats" data-testid="frame-stats" aria-live="off">
               <span>{stats.time.toFixed(1)} s</span>
-              <span>{stats.fps.toFixed(1)} draw FPS</span>
-              <span>{stats.renderMs.toFixed(2)} ms / draw</span>
+              <span>{stats.fps.toFixed(1)} {stats.backend === "gpu" ? "submit" : "draw"} FPS</span>
+              <span>{stats.renderMs.toFixed(2)} JS ms / {stats.backend === "gpu" ? "submit" : "draw"}</span>
               <span>{Math.round(stats.width)} × {Math.round(stats.height)} CSS</span>
               <span>{stats.pixelWidth} × {stats.pixelHeight} px</span>
               <span>DPR {stats.dpr.toFixed(2)}</span>
-              <span className="draw-count">Total canvas draws: {stats.draws}</span>
+              <span className="draw-count">Backend {stats.backend === "gpu" ? "submits" : "draws"}: {stats.draws}</span>
+              {stats.backend === "gpu" && <span className="draw-count">{stats.instances} segment instances · GPU time not measured</span>}
             </div>
+            {backend === "gpu" && status.phase === "ready" && <button className="loss-test text-button"
+              onClick={() => setLossToken(value => value + 1)}>Test device loss</button>}
             <p className="keyboard-hint">Space: play / pause · R: restart · D: controls</p>
           </motion.aside>
         )}

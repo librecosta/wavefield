@@ -53,6 +53,8 @@ PERFORMANCE OF THIS SOFTWARE.
 
 ## Development dependencies
 
+`@webgpu/types` uses BSD-3-Clause, copyright 2022 WebGPU Developers. It provides compile-time API declarations only and is not shipped as a runtime renderer. Its complete license is included in the installed package. Wavefield's WGSL, terrain field, scene seed, and coefficients are original; no third-party shader or example source is vendored.
+
 Vite and its React plugin use MIT. TypeScript uses Apache-2.0. Transitive development dependencies also include ISC, BSD-3-Clause, 0BSD and CC-BY-4.0 licenses. The CC-BY-4.0 browser-compatibility dataset is provided by [caniuse-lite](https://github.com/browserslist/caniuse-lite), a build-time dependency; it is not part of the wave geometry or artwork.
 
 The complete license files are distributed in the respective npm packages. When distributing a generated bundle, retain its third-party license comments and applicable notices as well as this project's LICENSE.

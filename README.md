@@ -2,70 +2,70 @@
 
 Interactive procedural wave visuals for the web, built with React, Motion, and Canvas 2D.
 
-A small [LibreCosta](https://github.com/librecosta) frontend experiment that draws a translucent blue membrane with a three-dimensional grid, thin edges, and local grazing highlights. Geometry, camera projection, and lighting are mathematical; the demo has no image textures, backend, or external service dependency. It does not use Three.js or WebGL.
+A [LibreCosta](https://github.com/librecosta) experiment with two independent renderers on one responsive stage: the **V0.2 Canvas 2D membrane** and the **V0.3 native WebGPU wire terrain**. Both are mathematical, with no image textures, backend, external services, Three.js, or rendering framework.
 
-## Features
+## Renderers
 
-- Continuous world-space height field, analytic normals, and a normal-offset underside.
-- Shared vertices for surface patches and both grid directions; only the visible near edge has a side ribbon.
-- An independent orthographic camera with tilt, zoom, and vertical framing controls.
-- Subtle surface fill, normal-based lighting, local rim highlights, and limited glow.
-- Responsive hero framing, CSS-pixel line widths, DPR capped at 2, and spacing-based grid thinning/fading.
-- Motion schedules frames; Canvas draws are capped at 24/s by default. Timekeeping is independent of that cap.
-- Pause, deterministic time selection, hidden/offscreen suspension, and reduced-motion support.
+**Canvas 2D is the default.** Its continuous world-space membrane, analytic normals, normal-offset underside, shared grid, orthographic camera, translucent film, and thin near edge remain available. Geometry, Camera, and Material controls retain their V0.2 behavior. Setting Wave Height to zero produces a flat plane with depth; Thickness zero removes the side ribbon. Narrow views crop the long axis to preserve readable depth.
 
-The demo is experimental. It is not a pixel-for-pixel recreation of a reference image. No reference artwork, traced contours, or image-derived calibration data is included.
+**WebGPU initializes only when selected.** An original seeded height field combines unequal, asymmetric broad forms, depth envelopes, and small ripples. Instanced triangle quads draw continuous grid segments with Gaussian cross-sections, depth-dependent defocus, restrained cross-lines, and local normal-based grazing highlights. This is an art-directed height-field projection, not a general 3D renderer.
 
-## Getting started
+The GPU canvas clears to transparent black. Its fragment output and blend state both use premultiplied alpha, so the terrain can be composited over a future hero background. The page supplies the dark background. No depth buffer, image assets, or per-frame CPU geometry upload is used.
 
-Use Node.js 24 or newer and npm. The tests use Node's native TypeScript support.
+This is an independent experiment, not a pixel-for-pixel recreation of reference artwork. Motion's public visuals inform the general blue-grid art direction. No Motion WGSL, proprietary scene constants, reference artwork, traced contours, or image-derived calibration data is included.
+
+## Run locally
+
+Use **Node.js 24 or newer** and npm. Tests use Node's native TypeScript support.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite.
+Open the local URL printed by Vite. To serve the static production build locally:
 
 ```sh
 npm run build
 npm run preview
 ```
 
-The production build is a static site in `dist/`. The preview command serves that build locally.
+Build output is in `dist/`.
 
-## Controls
+## A/B controls
 
-Use **Controls** or **D** to open the Inspector. Its four collapsible groups affect separate parts of the rendering:
+Open **Controls** or press **D**. Select **Canvas 2D · V0.2** or **WebGPU · V0.3**. Each backend keeps its own geometry/material settings; both share the animation clock, speed, play state, and frame limit. Switching does not restart time. GPU startup temporarily suspends the shared clock rather than catching up after initialization.
 
-| Group | Controls and defaults |
-| ----- | --------------------- |
-| Geometry | Wave Height **1**, Surface Depth **4.8**, Thickness **0.035** (world units) |
-| Camera | Tilt **18°**, Zoom **1×**, Vertical Position **0.04** (fraction of canvas height; positive moves down) |
-| Material | Grid Density **1**, Surface Opacity **0.035**, Rim Light **0.65**, Glow **0.55**, Brightness **1** |
-| Animation | Speed **0.7**, Frame Limit **24 draws/s** (12/24/30 available) |
+| Controls | Purpose |
+| --- | --- |
+| Canvas Geometry | Wave Height, Surface Depth, Thickness |
+| Canvas Camera | Tilt, Zoom, Vertical Position |
+| Canvas Material | Grid Density, Surface Opacity, Rim Light, Glow, Brightness |
+| GPU terrain & material | Terrain Relief, Focus Depth (0 far, 1 near), Defocus, Grid Contrast, Rim Light, Opacity |
+| Animation | Speed, frame limit (12/24/30), play/pause, restart, reset |
+| Freeze at time | Pause and seek to an exact number of animation seconds for A/B comparison |
+| Test device loss | Destroy the active GPU device to exercise real Canvas fallback |
 
-Wave Height scales the entire height field: **0 is a flat plane with real depth**, not a frozen wave. Thickness offsets the underside along the normal; **0 removes the side ribbon**. Density changes the shared mesh resolution; spacing-based thinning can reduce visible lines further. Surface Opacity affects the film, while Rim Light affects local grazing highlights. Zoom preserves proportions. On narrow screens, the camera crops the long axis to retain readable depth rather than compressing the whole membrane into a thin strip.
+Space toggles playback; **R** restarts the clock; **Escape** closes controls. **Initial Frame** pauses and resets both parameter sets and time. **Reset** restores both defaults and resumes, unless reduced motion is enabled.
 
-| Key / control | Action                                                   |
-| ------------- | -------------------------------------------------------- |
-| Space         | Pause or resume                                          |
-| D             | Toggle controls                                          |
-| R             | Restart the animation clock                              |
-| Escape        | Close controls                                           |
-| Initial Frame | Pause, restore all defaults, and return to time zero      |
-| Reset         | Restore all defaults and restart playback at time zero    |
+Motion schedules frames. Actual Canvas draws or GPU submissions are limited to **24/s by default**, independently of elapsed time. The cap is a maximum, not a promised frame rate: RAF cadence and device load may yield fewer frames. Paused settings/size changes draw once, subject to that cap. Hidden and offscreen views stop drawing and advancing time; returning excludes the inactive interval. Reduced motion keeps playback paused while allowing static parameter edits.
 
-Reduced motion keeps animation paused and disables Play; settings still redraw a static frame. Hidden pages and offscreen canvases stop drawing and advancing time. Resuming does not accumulate the inactive interval. Paused parameter changes draw once, subject to the same frame cap. The cap is a maximum, not a promised frame rate: RAF cadence and device load can yield fewer draws.
+Diagnostics show actual backend draws/submissions per second, average **synchronous CPU** drawing or encoding/submission milliseconds, backend frame count, dimensions, effective DPR, and GPU segment instances. They update about once per second. **GPU completion time is not measured.** Both lab backends use the same DPR cap of **1.5**; the preserved standalone V0.2 Canvas renderer still supports DPR 2. GPU backing dimensions additionally obey device texture limits. Narrow screens use fewer GPU segments.
 
-Diagnostics show actual **draw FPS**, average synchronous JavaScript milliseconds per draw, total draws, CSS size, backing pixel size, and DPR. They update about once per second; they do not measure GPU time or display refresh rate.
+Optional query parameters:
 
-Optional URL parameters:
+- `?inspect=1` opens controls.
+- `?still=1&time=8` freezes the Canvas view at eight animation seconds.
+- `?backend=gpu&still=1&time=8` requests the GPU view at the same time, with normal fallback handling.
+- Add `&capture=1` for the independent **1891 × 230 CSS-pixel** QA view. It may overflow narrow windows and hides controls. Ordinary pages use responsive hero framing.
 
-- `?inspect=1` opens the controls.
-- `?still=1` pauses at the initial pose.
-- `?still=1&time=8` pauses at eight animation seconds.
-- `?still=1&time=8&capture=1` uses the independent, fixed **1891 × 230 CSS-pixel** QA view with the same camera and default controls. It may overflow a narrower window. Normal views use a responsive hero height, never this fixed aspect ratio. Capture mode hides the Inspector.
+## Compatibility and fallback
+
+Canvas requires modern ES modules, Canvas 2D (including `filter` for blur), `ResizeObserver`, `IntersectionObserver`, and modern CSS viewport units. WebGPU additionally requires an enabled browser implementation, an available adapter, and a [secure context such as HTTPS or localhost](https://developer.mozilla.org/en-US/docs/Web/API/GPUCanvasContext/configure).
+
+Unsupported browsers, a missing adapter, initialization timeout/failure, uncaptured validation errors, and device loss automatically return to Canvas, preserving time and playback. The Inspector reports the reason. GPU is retried only by selecting it again. Backend changes replace the canvas element; a single element never acquires both context types. Cancelled startups cannot overwrite a newer renderer, and late devices are destroyed. Each renderer releases its own buffers, context, device, listeners, and observers.
+
+Hardware WebGPU was visually checked in the local Chromium-based browser on an AMD GCN-5 non-fallback adapter at 1440, 960, and 390 CSS pixels. This is not a cross-browser or mobile-device certification. Browser/driver support, blur quality, and frame rate vary. Canvas transparency uses painter ordering rather than exact 3D intersection sorting; the GPU terrain likewise has no depth attachment and is intended for a shallow background effect.
 
 ## Development
 
@@ -75,18 +75,12 @@ npm test
 npm run check
 ```
 
-`check` runs the type checker, tests, and production build. Tests cover continuous/compiled geometry agreement, finite unit normals and tangents, flat-plane and thickness degeneration, shared grid nodes, loop position/velocity continuity, camera direction and parameter effects, responsive framing, DPR 1/2 drawing contracts, canvas cleanup, draw caps, and timekeeping through pauses/visibility changes.
+`check` runs type checking, all tests, and the production build. The original Canvas geometry/camera/rendering tests are retained. Added tests cover terrain continuity, responsive GPU budgets, alpha/submission contracts, cancellation, timeouts, initialization errors, device loss, cleanup, and shared clock behavior. GPU doubles test contracts, not image quality; actual WGSL compilation and static/animated appearance require a real browser.
 
-In `src/wave/`, `surface.ts` defines the continuous height field and defaults; `geometry.ts` caches spatial modes and builds shared world vertices, normals, and lower vertices. Coordinates are X right, Y up, Z towards the viewer; V increases towards the near edge, with normals oriented towards +Y using Pv × Pu. `camera.ts` maps world → view → CSS screen coordinates. `renderer.ts` paints the film, near side, grid, and glow. Geometry buffers change with geometry/time, projection with geometry/camera/size, and gradients stay cached during animation. `clock.ts` separates elapsed time from draw scheduling. `WaveField.tsx` owns browser visibility and resource cleanup; React updates controls and low-frequency diagnostics rather than every animation frame.
+In `src/wave/`, the V0.2 `surface.ts`, `geometry.ts`, `camera.ts`, and `renderer.ts` implement the Canvas membrane. `gpu-terrain.ts` defines the original scene and sizing rules, `gpu-shaders.ts` supplies WGSL, and the lazy `gpu-renderer.ts` owns WebGPU resources. `renderer-session.ts` guards asynchronous ownership; `clock.ts` separates time from drawing. `WaveField.tsx` manages the one active backend, browser visibility, and cleanup. React controls parameters and low-frequency diagnostics rather than per-frame geometry.
 
-## Browser requirements
+## License
 
-The demo uses ES modules, Canvas 2D (including the `filter` property for blur), `ResizeObserver`, `IntersectionObserver`, and modern CSS viewport units. Use a current browser with these features. This repository does not include a cross-browser test suite or legacy-browser polyfills; blur quality and frame rate depend on the browser and device.
+Copyright © 2026 LibreCosta. Released under [BSD-3-Clause](LICENSE).
 
-This is a shallow-height-field painter with a restricted camera angle, not a general 3D renderer. Transparent patches use far-to-near strips, with no depth buffer or exact self-intersection sorting. Large wave heights at shallow tilt can overlap imperfectly. No claim of pixel-accurate reproduction of Motion's artwork or source code is made.
-
-## License and attribution
-
-Copyright © 2026 LibreCosta. Released under the [BSD-3-Clause license](LICENSE).
-
-React and Motion are used as dependencies, not copied example implementations. This is an independent LibreCosta project, not an official Motion project. No third-party artwork or paid example source is bundled. See [third-party notices](THIRD_PARTY_NOTICES.md) and the dependencies' installed license files.
+React and Motion are dependencies, not copied example implementations. This is an independent LibreCosta project, not an official Motion project. See [third-party notices](THIRD_PARTY_NOTICES.md) and installed dependency licenses. No third-party artwork or paid example source is bundled.
