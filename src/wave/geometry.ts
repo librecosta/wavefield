@@ -1,85 +1,66 @@
-import { LOOP_SECONDS, SURFACE_WIDTH, surfaceX, surfaceY } from "./surface.ts";
+import { SURFACE_LENGTH, evaluateMode, writeSurfaceModes, writeTimeModes } from "./surface.ts";
 
-const TABLE_START = -512;
-const TABLE_STEP = 2;
-const TABLE_LENGTH = Math.ceil((SURFACE_WIDTH + 1024) / TABLE_STEP) + 1;
+/** x right, y up, z towards the viewer; v=0 is the far edge. */
+export class MembraneGeometry {
+  readonly columns: number;
+  readonly rows: number;
+  readonly count: number;
+  readonly positions: Float32Array;
+  readonly normals: Float32Array;
+  readonly lower: Float32Array;
+  private readonly modes: Float64Array;
+  private readonly timeModes = new Float64Array(4);
+  private time = NaN;
+  private height = NaN;
+  private depth = NaN;
+  private thickness = NaN;
 
-/** A projected row with its static geometry and spatial modes compiled once. */
-export class ProjectedRow {
-  readonly depth: number;
-  readonly samples: number;
-  private readonly offset: number;
-  readonly xs: Float32Array;
-  readonly ys: Float32Array;
-  private readonly baseline = new Float32Array(TABLE_LENGTH);
-  private readonly indices: Float32Array;
-  private readonly bigSin: Float32Array;
-  private readonly bigCos: Float32Array;
-  private readonly smallSin: Float32Array;
-  private readonly smallCos: Float32Array;
-  private readonly depthSin: number;
-  private readonly depthCos: number;
-
-  constructor(
-    depth: number,
-    samples: number,
-    xs?: Float32Array,
-    ys?: Float32Array,
-    offset = 0,
-  ) {
-    this.depth = depth;
-    this.samples = samples;
-    this.offset = offset;
-    this.xs = xs ?? new Float32Array(samples + 1);
-    this.ys = ys ?? new Float32Array(samples + 1);
-    this.indices = new Float32Array(samples + 1);
-    this.bigSin = new Float32Array(samples + 1);
-    this.bigCos = new Float32Array(samples + 1);
-    this.smallSin = new Float32Array(samples + 1);
-    this.smallCos = new Float32Array(samples + 1);
-    this.depthSin = Math.sin(depth * 1.9);
-    this.depthCos = Math.cos(depth * 1.9);
-    for (let i = 0; i < TABLE_LENGTH; i++) {
-      this.baseline[i] = surfaceY(TABLE_START + i * TABLE_STEP, depth, 0, 0);
-    }
-    for (let i = 0; i <= samples; i++) {
-      const x = surfaceX(i / samples, depth);
-      const u = x / SURFACE_WIDTH;
-      const envelope = Math.sin(Math.PI * Math.max(0, Math.min(1, u))) ** 0.6;
-      const big = u * 8.1 - depth * 3.2;
-      const small = u * 17.5 + depth * 4.4;
-      this.xs[offset + i] = x;
-      this.indices[i] = (x - TABLE_START) / TABLE_STEP;
-      this.bigSin[i] = envelope * (3 + depth * 5) * Math.sin(big);
-      this.bigCos[i] = envelope * (3 + depth * 5) * Math.cos(big);
-      this.smallSin[i] = envelope * 1.5 * Math.sin(small);
-      this.smallCos[i] = envelope * 1.5 * Math.cos(small);
+  constructor(density = 1) {
+    this.columns = Math.round((128 * density) / 8) * 8;
+    this.rows = Math.round(40 * density);
+    this.count = (this.columns + 1) * (this.rows + 1);
+    this.positions = new Float32Array(this.count * 3);
+    this.normals = new Float32Array(this.count * 3);
+    this.lower = new Float32Array(this.count * 3);
+    this.modes = new Float64Array(this.count * 12);
+    for (let row = 0; row <= this.rows; row++) {
+      for (let col = 0; col <= this.columns; col++) {
+        writeSurfaceModes(col / this.columns, row / this.rows, this.modes, this.index(row, col) * 12);
+      }
     }
   }
 
-  update(time: number, amplitude: number) {
-    const phase = (time / LOOP_SECONDS) * Math.PI * 2;
-    const sin1 = Math.sin(phase),
-      cos1 = Math.cos(phase) - 1;
-    const sin2 = Math.sin(phase * 2),
-      cos2 = Math.cos(phase * 2) - 1;
-    const shift =
-      (32 * amplitude * (sin1 * this.depthCos + cos1 * this.depthSin)) /
-      TABLE_STEP;
-    for (let i = 0; i <= this.samples; i++) {
-      const index = this.indices[i] + shift;
-      const lower = Math.floor(index),
-        fraction = index - lower;
-      const baseline =
-        this.baseline[lower] * (1 - fraction) +
-        this.baseline[lower + 1] * fraction;
-      this.ys[this.offset + i] =
-        baseline +
-        amplitude *
-          (this.bigSin[i] * cos1 -
-            this.bigCos[i] * sin1 +
-            this.smallSin[i] * cos2 -
-            this.smallCos[i] * sin2);
+  /** Both line families and every material patch address these same nodes. */
+  index(row: number, col: number) { return row * (this.columns + 1) + col; }
+
+  update(time: number, height: number, depth: number, thickness: number): boolean {
+    if ((time === this.time || height === 0) && height === this.height &&
+      depth === this.depth && thickness === this.thickness) return false;
+    this.time = time;
+    this.height = height;
+    this.depth = depth;
+    this.thickness = thickness;
+    writeTimeModes(time, this.timeModes);
+    for (let row = 0; row <= this.rows; row++) {
+      const z = depth * (row / this.rows - 0.5);
+      for (let col = 0; col <= this.columns; col++) {
+        const node = this.index(row, col), i = node * 3, mode = node * 12;
+        const x = SURFACE_LENGTH * (col / this.columns - 0.5);
+        const y = height === 0 ? 0 : height * evaluateMode(this.modes, mode, this.timeModes);
+        const nx = height === 0 ? 0 : -height * evaluateMode(this.modes, mode + 4, this.timeModes) / SURFACE_LENGTH;
+        const nz = height === 0 ? 0 : -height * evaluateMode(this.modes, mode + 8, this.timeModes) / depth;
+        // Pv × Pu (rather than Pu × Pv) fixes all normals towards +Y.
+        const inverseLength = 1 / Math.hypot(nx, 1, nz);
+        this.positions[i] = x; this.positions[i + 1] = y; this.positions[i + 2] = z;
+        this.normals[i] = nx * inverseLength;
+        this.normals[i + 1] = inverseLength;
+        this.normals[i + 2] = nz * inverseLength;
+        for (let axis = 0; axis < 3; axis++) {
+          this.lower[i + axis] = thickness === 0 ? this.positions[i + axis] :
+            this.positions[i + axis] - thickness * this.normals[i + axis];
+        }
+      }
     }
+    return true;
   }
 }

@@ -1,107 +1,107 @@
-import { useEffect, useRef, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAnimationFrame, type MotionValue } from "motion/react";
 import { WaveRenderer } from "./wave/renderer";
-import { DEFAULT_SETTINGS, type WaveSettings } from "./wave/surface";
-export type WaveControls = {
-  playing: MotionValue<boolean>;
-  speed: MotionValue<number>;
-  amplitude: MotionValue<number>;
-  brightness: MotionValue<number>;
-  glow: MotionValue<number>;
+import { FrameClock } from "./wave/clock";
+import type { WaveSettings } from "./wave/surface";
+
+export type FrameStats = {
+  time: number; renderMs: number; fps: number; draws: number;
+  width: number; height: number; pixelWidth: number; pixelHeight: number; dpr: number;
 };
-export type FrameStats = { time: number; renderMs: number; fps: number };
 type Props = {
-  controls: WaveControls;
-  elapsed: MutableRefObject<number>;
+  playing: MotionValue<boolean>;
+  settings: MotionValue<WaveSettings>;
+  initialTime: number;
   resetToken: number;
   onStats: (stats: FrameStats) => void;
 };
 
-export function WaveField({ controls, elapsed, resetToken, onStats }: Props) {
-  const canvas = useRef<HTMLCanvasElement>(null),
-    renderer = useRef<WaveRenderer | null>(null);
-  const inViewport = useRef(true),
-    pageVisible = useRef(!document.hidden),
-    needsDraw = useRef(true),
-    lastStats = useRef(0),
-    frames = useRef(0),
-    renderTotal = useRef(0);
-  const previous = useRef<WaveSettings>({ ...DEFAULT_SETTINGS });
+export function WaveField({ playing, settings, initialTime, resetToken, onStats }: Props) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const renderer = useRef<WaveRenderer | null>(null);
+  const [clock] = useState(() => new FrameClock(initialTime));
+  const inViewport = useRef(false), pageVisible = useRef(!document.hidden);
+  const sampleStart = useRef<number | null>(null), frames = useRef(0);
+  const totalDraws = useRef(0), renderTotal = useRef(0);
+  const publishStats = useCallback((fps: number, renderMs: number) => {
+    const instance = renderer.current, element = canvas.current;
+    if (!instance || !element) return;
+    onStats({
+      time: clock.elapsed, renderMs, fps, draws: totalDraws.current,
+      width: instance.width, height: instance.height,
+      pixelWidth: element.width, pixelHeight: element.height, dpr: instance.dpr,
+    });
+  }, [clock, onStats]);
+
   useEffect(() => {
     const element = canvas.current!;
-    renderer.current = new WaveRenderer(element);
+    const instance = new WaveRenderer(element);
+    renderer.current = instance;
+    const suspend = () => {
+      clock.suspend();
+      sampleStart.current = null;
+      frames.current = renderTotal.current = 0;
+    };
     const resize = () => {
       const { width, height } = element.getBoundingClientRect();
+      const dpr = Math.max(1, Math.min(window.devicePixelRatio, 2));
       if (!width || !height) return;
-      renderer.current?.resize(width, height, window.devicePixelRatio);
-      needsDraw.current = true;
+      if (width !== instance.width || height !== instance.height || dpr !== instance.dpr) {
+        instance.resize(width, height, dpr);
+        clock.invalidate();
+      }
     };
     const ro = new ResizeObserver(resize);
     ro.observe(element);
     const io = new IntersectionObserver(([entry]) => {
       inViewport.current = entry.isIntersecting;
-      needsDraw.current = true;
+      suspend();
+      clock.invalidate();
+      publishStats(0, 0);
     });
     io.observe(element);
     const visibility = () => {
       pageVisible.current = !document.hidden;
-      needsDraw.current = true;
+      suspend();
+      clock.invalidate();
+      publishStats(0, 0);
     };
+    const offSettings = settings.on("change", () => clock.invalidate());
+    const offPlaying = playing.on("change", () => { suspend(); clock.invalidate(); });
     document.addEventListener("visibilitychange", visibility);
     window.addEventListener("resize", resize);
     resize();
     return () => {
-      ro.disconnect();
-      io.disconnect();
+      ro.disconnect(); io.disconnect(); offSettings(); offPlaying();
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("resize", resize);
+      suspend();
+      instance.dispose();
       renderer.current = null;
     };
-  }, []);
-  useEffect(() => {
-    needsDraw.current = true;
-  }, [resetToken]);
-  useAnimationFrame((timestamp, delta) => {
-    if (!renderer.current || !inViewport.current || !pageVisible.current)
-      return;
-    const settings: WaveSettings = {
-      speed: controls.speed.get(),
-      amplitude: controls.amplitude.get(),
-      brightness: controls.brightness.get(),
-      glow: controls.glow.get(),
-    };
-    const changed = Object.keys(settings).some(
-      (key) =>
-        settings[key as keyof WaveSettings] !==
-        previous.current[key as keyof WaveSettings],
-    );
-    if (controls.playing.get())
-      elapsed.current += (Math.min(delta, 50) / 1000) * settings.speed;
-    if (controls.playing.get() || needsDraw.current || changed) {
-      renderTotal.current += renderer.current.draw(elapsed.current, settings);
+  }, [clock, playing, settings, publishStats]);
+
+  useEffect(() => { if (resetToken) clock.reset(); }, [resetToken, clock]);
+
+  useAnimationFrame((timestamp) => {
+    const instance = renderer.current;
+    if (!instance) return;
+    const current = settings.get();
+    const visible = inViewport.current && pageVisible.current;
+    if (clock.step(timestamp, current.speed, playing.get(), visible, current.frameLimit)) {
+      renderTotal.current += instance.draw(clock.elapsed, current);
       frames.current++;
-      previous.current = settings;
-      needsDraw.current = false;
+      totalDraws.current++;
     }
-    if (timestamp - lastStats.current >= 750) {
-      onStats({
-        time: elapsed.current,
-        renderMs: frames.current ? renderTotal.current / frames.current : 0,
-        fps: Math.round(
-          (frames.current / (timestamp - lastStats.current)) * 1000,
-        ),
-      });
-      frames.current = 0;
-      renderTotal.current = 0;
-      lastStats.current = timestamp;
+    if (!visible) return;
+    if (sampleStart.current === null) sampleStart.current = timestamp;
+    const interval = timestamp - sampleStart.current;
+    if (interval >= 1000) {
+      publishStats(frames.current * 1000 / interval, frames.current ? renderTotal.current / frames.current : 0);
+      frames.current = renderTotal.current = 0;
+      sampleStart.current = timestamp;
     }
   });
-  return (
-    <canvas
-      ref={canvas}
-      className="wave-canvas"
-      role="img"
-      aria-label="Slowly undulating blue wireframe waves on a dark background"
-    />
-  );
+  return <canvas ref={canvas} className="wave-canvas" role="img"
+    aria-label="A blue translucent wave membrane with a shared three-dimensional grid and thin edges" />;
 }
