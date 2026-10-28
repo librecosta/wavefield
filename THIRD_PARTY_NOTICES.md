@@ -8,9 +8,13 @@ React, React DOM and Scheduler use the MIT license:
 
 > Copyright (c) Meta Platforms, Inc. and affiliates.
 
-Motion, Framer Motion, Motion DOM and Motion Utils use the MIT license:
+Motion, Motion DOM and Motion Utils use the MIT license:
 
 > Copyright (c) 2024 [Motion](https://motion.dev) B.V.
+
+Framer Motion uses the MIT license:
+
+> Copyright (c) 2018 Framer B.V.
 
 The MIT permission and disclaimer below apply to those packages:
 
@@ -61,6 +65,14 @@ The complete license files are distributed in the respective npm packages. When 
 
 ## Visual and mathematical reference
 
-Motion's public [article header terrain](https://motion.dev/examples/react-particle-orb) informs V0.3-R1. The mathematical observations and engineering requirements are recorded in [Issue #2](https://github.com/librecosta/wavefield/issues/2). The article preset's numeric hill, phase and color data were derived from the public initializer and verified against runtime uniforms on 2026-10-28. They are scene observations, not copied shader code. Wavefield independently implements the observed behavior with shared-node compute sampling and a separate ribbon rendering pass; its alternative seed generator is also independent.
+The PRNG inside `seededHills` follows **Mulberry32**, designed by Tommy Ettinger (2017). The [author's original reference](https://gist.github.com/tommyettinger/46a874533244883189143505d203312c) carries a CC0 public-domain dedication. This algorithm supplies Wavefield's alternative scene seeds and is separate from Motion's article initializer; it is not a new PRNG invented by this project.
+
+Motion's public [article header terrain](https://motion.dev/examples/react-particle-orb) informs Wavefield's visual behavior. The mathematical observations and engineering requirements are recorded in [Issue #2](https://github.com/librecosta/wavefield/issues/2). The default preset's precise hill, phase and color data were derived from the public initializer and verified against runtime uniforms on 2026-10-28. These remain in `src/wave/gpu-terrain.ts` as `STUDY_HILLS`, `ARTICLE_PHASE`, and the color values; `src/App.tsx` exposes the Article reference preset. The projection, motion and optical coefficients in the terrain model and shaders also follow the observed reference behavior. This is a source-informed reconstruction with a closely corresponding scene, not merely a generic visual influence.
+
+Wavefield implements that behavior with separately written shared-node compute sampling and ribbon rendering passes; its alternative seed generator is independent. The repository audit found no verbatim copy of the original website JavaScript or complete WGSL. Independent implementation and attribution alone do not establish permission for reproducing the reference design or exact preset. No separate permission or license for the website's header implementation or scene design has been verified. The MIT licenses of the installed Motion packages do not establish that permission; Wavefield's BSD license does not relicense third-party rights. Maintainers should review this provenance before release or downstream integration.
 
 No original Motion JavaScript/WGSL, paid example implementation, research captures, images, fonts, or other website assets are distributed. Publicly readable website source is not represented as BSD-licensed material. Wavefield is not affiliated with or endorsed by Motion.
+
+## Repository preview
+
+`docs/assets/wavefield-preview.webp` is a screenshot of Wavefield's own running WebGPU demo, not a capture of Motion's website or a user-provided image. It uses the unchanged default preset at time 8 seconds, a 1440 × 576 CSS-pixel capture view, and reference grid quality. Only image encoding/compression was applied. The reference-scene provenance above also applies to the rendered appearance; the screenshot does not resolve that permission uncertainty.

@@ -1,72 +1,70 @@
 # Wavefield
 
-Procedural wire terrain for the web, built with React, Motion, TypeScript, and native WebGPU. A [LibreCosta](https://github.com/librecosta) experiment.
+Interactive procedural wire terrain for the web, built with React, Motion, TypeScript, and native WebGPU. An independent [LibreCosta](https://github.com/librecosta) project.
 
-V0.3-R1 reconstructs the mathematical behavior of the [Motion article header terrain](https://motion.dev/examples/react-particle-orb), using independently written compute and rendering shaders. Four unequal elliptical Gaussian hills, slow center drift, and three low-amplitude spatial waves produce a continuous height field. Analytic slopes drive localized grazing highlights; Gaussian line profiles, a narrow focus band, and defocus energy compensation give the grid its soft blue appearance.
+![Wavefield — WebGPU procedural terrain preview](docs/assets/wavefield-preview.webp)
 
-This is an independent project, not an official Motion example. The public behavior and numeric scene observations are documented in [Issue #2](https://github.com/librecosta/wavefield/issues/2). No third-party shader source, artwork, textures, or image-derived calibration files are bundled. The former Canvas renderer and A/B lab have been removed.
+*Captured from the running demo at 1440 × 576, time = 8 seconds, with the default scene and full grid. No image textures are used by the renderer.*
 
-## Run locally
+## Features
 
-Use **Node.js 24 or newer** and npm. Tests use Node's native TypeScript support.
+- Continuous terrain with slowly drifting hills and a complete two-direction grid.
+- Gaussian soft lines, depth-dependent focus, and localized grazing highlights.
+- Live scene, material, framing, and playback controls; reproducible frozen frames.
+- Transparent, premultiplied-alpha canvas and a responsive stage.
+- Static CSS fallback when WebGPU is unavailable or the device is lost, with explicit retry.
+
+## Quick start
+
+Requires **Node.js 24+** and npm.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open the URL printed by Vite. To serve a production build locally:
+Open the local URL printed by Vite. For the production build:
 
 ```sh
 npm run build
 npm run preview
 ```
 
-Build output is in `dist/`. There are no runtime external services or asset requests.
+This repository is a standalone demo, not a published npm package. Build output is in `dist/`; retain its generated `LICENSE` and `THIRD_PARTY_NOTICES.md` when distributing it. The demo has no runtime external service or asset requests.
 
-## Controls and reproducible frames
+## Controls
 
-Open **Controls** or press **D**. The Inspector exposes hill position, amplitude and span; focus depth, defocus, line size, both grid-family alphas and grazing light; field framing and vertical position; playback, exact time, and 12/24 submission limits. **Space** toggles playback, **R** restarts time, and **Escape** closes controls. **Initial frame** restores the preset and pauses at zero.
+Open **Controls** or press **D**. Adjust hill positions, heights and spans; focus, defocus, grid alphas and grazing light; field framing, time and sampling. **Space** toggles playback, **R** restarts time, and **Escape** closes controls. **Initial frame** restores defaults and pauses at zero. **Freeze at time** pauses at an exact animation time. Scene seeds create deterministic alternatives; **Article reference preset** restores the default hills and phase.
 
-The default article preset records four hill uniforms and phase for the `react-particle-orb` header, recovered from its public initializer and checked against runtime uniform writes on 2026-10-28. **Scene seed** generates Wavefield variations with a separate deterministic generator; it is not Motion's seed algorithm. **Article reference preset** restores the measured hills and phase.
+Append these queries to the local demo URL:
 
-| URL | Result |
+| Query | View |
 | --- | --- |
-| `?inspect=1&still=1&time=8` | Responsive stage, controls open, frozen at 8 seconds |
-| `?capture=1&still=1&time=8&quality=reference` | 1891 × 230 CSS pixels, controls hidden, full grid |
-| `?capture=1440x576&still=1&time=8&quality=reference` | Matching desktop QA frame |
-| `?capture=390x422&still=1&time=0&quality=reference` | Matching small-screen QA frame |
+| `?inspect=1&still=1&time=8` | Responsive stage with controls, frozen at 8 seconds |
+| `?capture=1440x576&still=1&time=8&quality=reference` | Reproduce the preview, with controls hidden |
+| `?capture=390x422&still=1&time=8&quality=reference` | Small-screen static frame with the full grid |
+| `?capture=1&still=1&time=8&quality=reference` | 1891 × 230 comparison frame |
 
-Ordinary pages use a responsive stage, with horizontal cropping that preserves terrain depth on small screens. Capture mode is independent and can overflow a narrow window. Time zero shows settled geometry by default; enable **Entrance fade** to reproduce the initial 1.2-second reveal. Reduced motion always uses a settled static frame.
+Capture mode uses a fixed CSS size and may overflow smaller windows. Ordinary pages use a responsive stage. Time zero shows settled geometry; **Entrance fade** optionally adds the 1.2-second reveal.
 
-## Rendering and lifecycle
+## Browser and performance notes
 
-One compute pass samples shared heights and slopes, then one render pass draws two grid edges per cell as six-vertex instanced ribbons. Reference quality uses **192 × 112 cells / 43,008 segments**. Adaptive quality uses **128 × 96 / 24,576** below 560 CSS pixels; both families remain complete. There is no depth attachment. Transparent clear, premultiplied output and blending allow compositing over the page background.
+WebGPU requires an enabled browser implementation, an available adapter, and **HTTPS or localhost**. The app also uses modern ES modules, `ResizeObserver`, `IntersectionObserver`, and CSS viewport units. Hardware checks use a local Chromium-based browser with an AMD GCN-5 adapter; other browsers, drivers and physical mobile devices are not certified.
 
-Motion schedules callbacks. Actual GPU submissions are capped at **24/s by default**, separately from elapsed animation time. RAF cadence and load can produce a lower rate. Pausing, reduced motion, a hidden document, or an offscreen canvas stop continuous drawing and time advancement. Static parameter or size changes request one capped redraw. Returning excludes the inactive interval. GPU initialization also suspends the clock.
+Motion schedules callbacks; actual GPU submissions are capped at **24/s by default**, with a 12/s option. This is a maximum, not a guaranteed frame rate. Pause, reduced motion, hidden documents and offscreen views stop continuous rendering and time advancement; parameter and size changes can request a static redraw. Returning excludes inactive time. Diagnostics report submissions and synchronous **CPU encoding/submission cost**, not GPU execution time.
 
-Diagnostics report actual submissions, average synchronous **CPU encoding/submission** cost, frame count, dimensions, DPR, and segment count. **GPU execution time is not measured.** DPR is capped at 1.5 and backing dimensions respect device texture limits. Pipelines and buffers are reused across frames.
-
-Unsupported WebGPU, initialization failure/timeout, uncaptured validation errors, and device loss show a static CSS brand background with a reason and an explicit retry button. There is no retry loop. Cancelled initialization cannot replace a newer session; late devices, buffers, contexts, listeners and observers are cleaned up. **Test device loss** exercises this path on the active device.
-
-## Compatibility and visual scope
-
-Requires an enabled WebGPU implementation, an available adapter, and a secure context (HTTPS or localhost), plus modern ES modules, `ResizeObserver`, `IntersectionObserver`, and CSS viewport units. Browser and driver support vary; the static fallback remains available when GPU startup fails.
-
-Hardware compilation and visual checks were performed in the local Chromium-based browser on an AMD GCN-5 non-fallback adapter. Static header comparisons cover 1891 × 230, 1440 × 576 and 390-pixel-wide frames. This is not a cross-browser or physical mobile-device certification. Pixel coverage, subpixel joins and floating-point evaluation can differ; no cross-browser pixel-identical claim is made. The original historical screenshots' exact elapsed times remain unknown. See the Issue discussion for measured comparisons and remaining differences.
+The renderer uses one shared-node compute pass and one instanced ribbon pass, without a depth attachment. Full quality draws 43,008 segments (192 × 112 cells); adaptive quality draws 24,576 below 560 CSS pixels. DPR is capped at 1.5 and backing dimensions respect device limits. No Three.js or rendering framework is used.
 
 ## Development
 
 ```sh
-npm run typecheck
-npm test
 npm run check
 ```
 
-`check` runs type checking, tests and the production build. Tests cover analytic slopes, continuity, projection, focus/energy behavior, mesh budgets, uniform packing, scheduling, initialization failures, cancellation, loss and cleanup. GPU contract doubles do not establish WGSL compilation or visual quality; those require a real browser.
+Runs TypeScript checks, the test suite, and a production build. Tests cover terrain derivatives, projection, optical behavior, scheduling and GPU lifecycle contracts. Real-browser checks are still needed for shader compilation and visual output. `npm run typecheck` and `npm test` are also available separately.
 
-The rendering path is small: `gpu-terrain.ts` defines scene parameters and the CPU oracle; `gpu-shaders.ts` implements shared-node sampling and ribbons; `gpu-renderer.ts` owns GPU resources. `renderer-session.ts` guards asynchronous ownership, `clock.ts` separates time from submissions, and `WaveField.tsx` connects browser visibility and Motion scheduling. React manages controls and low-frequency diagnostics.
+## Credits and license
 
-## License
+Copyright © 2026 LibreCosta. Wavefield-authored code is licensed under [BSD-3-Clause](LICENSE); dependencies retain their own licenses.
 
-Copyright © 2026 LibreCosta. Released under [BSD-3-Clause](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.md) and installed dependency licenses. React and Motion are dependencies, not copied example implementations.
+The visual behavior and default numeric scene were informed by [Motion's article header terrain](https://motion.dev/examples/react-particle-orb). Wavefield is independently written and is not an official or endorsed Motion project. Motion's MIT package license must not be assumed to license its website's header implementation or scene design. See [third-party notices and reference provenance](THIRD_PARTY_NOTICES.md) for the distinction and remaining permission uncertainty; research details are in [Issue #2](https://github.com/librecosta/wavefield/issues/2).

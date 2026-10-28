@@ -79,7 +79,7 @@ export function App() {
     {!capture && <button className="inspector-trigger" onClick={() => setInspector(true)} aria-label="Open controls">Controls · D</button>}
     <AnimatePresence>{inspector && !capture && <motion.aside className="inspector" aria-label="Terrain controls"
       initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: reduced ? 0 : 0.15 }}>
-      <div className="inspector-heading"><h1>Wavefield <span>Terrain · 0.3-R1</span></h1>
+      <div className="inspector-heading"><h1>Wavefield <span>Terrain · 1.0.0</span></h1>
         <button className="text-button" onClick={() => setInspector(false)} aria-label="Close controls">Close</button></div>
       <p className="renderer-status" data-testid="renderer-status" role="status">WebGPU · {status.phase}
         {status.reason && ` · ${status.reason}`}<span>{status.adapter || status.message}</span></p>

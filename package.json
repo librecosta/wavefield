@@ -1,8 +1,8 @@
 {
   "name": "wavefield",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Procedural wire terrain for the web, built with React, Motion, and native WebGPU.",
+  "description": "Interactive procedural wire terrain for the web, built with React, Motion, and WebGPU.",
   "license": "BSD-3-Clause",
   "author": "LibreCosta",
   "repository": {
