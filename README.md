@@ -6,6 +6,15 @@ Interactive procedural wire terrain for the web, built with React, Motion, TypeS
 
 *Captured from the running demo at 1440 × 576, time = 8 seconds, with the default scene and full grid. No image textures are used by the renderer.*
 
+## Behind the Wavefield
+
+The reverse-engineering story and reconstruction notes are available in both languages:
+
+- [English — From a Wireframe Wall to a Soft Surface](docs/articles/webgpu-wavefield-reconstruction.en.md) · [Read on GopherAtlas](https://gopheratlas.com/notes/graphics-interaction/webgpu-wavefield-reconstruction-en/)
+- [中文 — 从“网墙”到柔性曲面](docs/articles/webgpu-wavefield-reconstruction.zh-CN.md) · [在 GopherAtlas 阅读](https://gopheratlas.com/notes/graphics-interaction/webgpu-wavefield-reconstruction/)
+
+The articles cover the earlier Canvas 2D attempts, inspection of Motion's WebGPU header, Gaussian height-field modeling, soft-line optics, and Wavefield's independent compute/render pipeline. Reference-scene provenance and permission limitations remain documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Features
 
 - Continuous terrain with slowly drifting hills and a complete two-direction grid.
